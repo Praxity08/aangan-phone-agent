@@ -49,6 +49,13 @@ export interface CallRow {
   hubspot_deal_id: string | null;
   asked_about_price: boolean;
   transcript: string | null;
+  scope: string | null;
+  carpet_area_sqft: number | null;
+  complete_by: string | null;
+  decision_maker: string | null;
+  referral: string | null;
+  budget_volunteered: string | null;
+  consultation_type: string | null;
 }
 
 export async function sourceCounts() {
@@ -64,7 +71,8 @@ export async function loadDashboard(source: Source, period: Period) {
   const rows = (await db`
     SELECT call_id, started_at, phone, name, location, property, call_type, outcome, decline_reason, flags,
            summary, uncertain, booked, consultation_at, after_hours, duration_seconds, telegram_sent,
-           hubspot_deal_id, asked_about_price, transcript, answer_seconds, voice_cost_inr, ai_cost_inr
+           hubspot_deal_id, asked_about_price, transcript, answer_seconds, voice_cost_inr, ai_cost_inr,
+           scope, carpet_area_sqft, complete_by, decision_maker, referral, budget_volunteered, consultation_type
     FROM calls
     WHERE source = ${source} AND started_at >= ${fromIso}
     ORDER BY started_at DESC`) as (CallRow & { answer_seconds: number | null; voice_cost_inr: string; ai_cost_inr: string })[];
@@ -98,8 +106,8 @@ export async function loadDashboard(source: Source, period: Period) {
       label,
       value: count((c) => c.outcome === "declined" && c.decline_reason === k),
     })),
-    { label: "Later start (nurture)", value: count((c) => c.outcome === "nurture") },
-    { label: "Existing client, escalated", value: count((c) => c.outcome === "escalated") },
+    { label: "Later start", value: count((c) => c.outcome === "nurture") },
+    { label: "Existing client", value: count((c) => c.outcome === "escalated") },
     { label: "Not an enquiry", value: count((c) => c.outcome === "message") },
     { label: "Not classified", value: count((c) => c.outcome === "unclassified") },
   ]

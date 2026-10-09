@@ -1,20 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { SESSION_COOKIE, safeEqual, sessionToken } from "@/lib/session";
 
-/** The dashboard shows callers' names and numbers: keep it behind a password. API routes use the webhook secret. */
-export function middleware(req: NextRequest) {
+/** The dashboard shows callers' names: without a valid session cookie, send people to /login. */
+export async function middleware(req: NextRequest) {
   const password = process.env.DASHBOARD_PASSWORD;
   if (!password) return NextResponse.next();
 
-  const header = req.headers.get("authorization") ?? "";
-  const [scheme, encoded] = header.split(" ");
-  if (scheme === "Basic" && encoded) {
-    const [, given] = atob(encoded).split(":");
-    if (given === password) return NextResponse.next();
-  }
-  return new NextResponse("Authentication required", {
-    status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="Aangan dashboard"' },
-  });
+  const cookie = req.cookies.get(SESSION_COOKIE)?.value ?? "";
+  if (cookie && safeEqual(cookie, await sessionToken(password))) return NextResponse.next();
+
+  const url = req.nextUrl.clone();
+  url.pathname = "/login";
+  url.search = "";
+  return NextResponse.redirect(url);
 }
 
-export const config = { matcher: ["/((?!api/|_next/|favicon.ico).*)"] };
+// API routes use the webhook secret; /login and the logo files must load without a session.
+export const config = { matcher: ["/((?!api/|_next/|login|favicon.ico|.*\\.png$).*)"] };

@@ -48,7 +48,7 @@ Every integration is optional. With no key set, that step is skipped and the cal
    - Post-call webhook: `https://<your-domain>/api/vaani/webhook`
    - Send header `x-webhook-secret: <WEBHOOK_SECRET>` on all of them
    - Set `VOICE_INR_PER_MIN` to your contracted rate, and enter any platform fee in `fixed_costs`
-7. **Dashboard password.** Set `DASHBOARD_PASSWORD` (any username works in the browser prompt).
+7. **Dashboard password.** Set `DASHBOARD_PASSWORD`. People sign in at `/login`; the session lasts 30 days, and changing the password signs everyone out.
 
 ## Test the classifier
 

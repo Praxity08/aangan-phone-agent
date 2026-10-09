@@ -1,39 +1,97 @@
-import { HBars } from "./components/HBars";
-import { HourChart } from "./components/HourChart";
+import { Explorer, type CallView, type OutcomeKey } from "./components/Explorer";
+import { config } from "@/lib/config";
 import { loadDashboard, PERIODS, SOURCES, sourceCounts, type CallRow, type Period, type Source } from "@/lib/metrics";
 
 export const dynamic = "force-dynamic";
 
+const TZ = config.timeZone;
 const inr = (v: number, digits = 0) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: digits, minimumFractionDigits: digits })}`;
-const when = (iso: string) =>
-  new Date(iso).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "2 Sep" in IST (Intl's en-GB short month now prints "Sept"). */
+const day = (iso: string) => {
+  const [y, m, dd] = new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ }).split("-").map(Number);
+  return y ? `${dd} ${MONTHS[m - 1]}` : "";
+};
+const clock = (iso: string) =>
+  new Date(iso).toLocaleTimeString("en-IN", { timeZone: TZ, hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase();
+const hourOf = (iso: string) => Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: TZ }).format(new Date(iso))) % 24;
 
-const OUTCOME: Record<string, { label: string; color: string }> = {
-  qualified: { label: "Qualified", color: "var(--good)" },
-  declined: { label: "Declined", color: "var(--text-muted)" },
-  nurture: { label: "Later start", color: "var(--warning)" },
-  escalated: { label: "Escalated", color: "var(--critical)" },
-  message: { label: "Not an enquiry", color: "var(--text-muted)" },
-  unclassified: { label: "Not classified", color: "var(--warning)" },
+const INDEX = [
+  ["Overview", "#overview", "#a9c99f"],
+  ["Needs a person", "#attention", "#b4a3db"],
+  ["Where calls went", "#outcomes", "#94b6d6"],
+  ["Day's rhythm", "#rhythm", "#e6cc7a"],
+  ["Every call", "#calls", "#e8b5a8"],
+  ["What it cost", "#cost", "#c9c5bb"],
+] as const;
+
+const EMPTY_HINT: Record<Source, string> = {
+  live: "Live calls appear here once the Vaani Labs number is connected.",
+  replay: "Run npm run replay to send the September transcripts through the pipeline.",
+  demo: "The September demo calls fall outside this period. Try All time.",
 };
 
-function Outcome({ c }: { c: CallRow }) {
-  const o = OUTCOME[c.outcome] ?? OUTCOME.unclassified;
-  return (
-    <span className="pill">
-      <span className="dot" style={{ background: o.color }} aria-hidden />
-      {o.label}
-    </span>
-  );
+/** One stored call → what the list and the designer brief show. */
+function toView(c: CallRow): CallView {
+  const outcome = (c.outcome in { qualified: 1, nurture: 1, escalated: 1, declined: 1, message: 1 } ? c.outcome : "unclassified") as OutcomeKey;
+  const consultPlace = c.consultation_type === "site" ? "Site visit" : c.consultation_type === "studio" ? "Studio" : null;
+  const consult =
+    consultPlace || c.consultation_at
+      ? `${consultPlace ?? "Booked"} · ${c.consultation_at ? `${day(c.consultation_at)}, ${clock(c.consultation_at)}` : "time not set"}`
+      : null;
+  const dur = c.duration_seconds ?? 0;
+  const handoff =
+    c.outcome === "qualified"
+      ? [c.telegram_sent ? "Telegram sent" : "Telegram not sent", c.hubspot_deal_id ? `HubSpot deal ${c.hubspot_deal_id}` : null].filter(Boolean).join(" · ")
+      : c.outcome === "escalated"
+        ? c.telegram_sent ? "Urgent Telegram sent" : "Urgent Telegram not sent"
+        : null;
+
+  const details: [string, string | null][] = [
+    ["Scope", c.scope],
+    ["Size", c.carpet_area_sqft ? `${c.carpet_area_sqft.toLocaleString("en-IN")} sq ft` : null],
+    ["Complete by", c.complete_by],
+    ["Decides", c.decision_maker],
+    ["Heard of us", c.referral],
+    ["Budget volunteered", c.budget_volunteered],
+    ["Consultation", consult],
+    ["Call length", dur ? `${Math.floor(dur / 60)} min ${dur % 60} s` : null],
+    ["Handoff", handoff],
+  ];
+
+  const shortId = c.call_id.replace(/^demo-/, "").replace(/^replay-[^-]+-/, "");
+  return {
+    id: c.call_id,
+    shortId: shortId.length > 10 ? shortId.slice(-8) : shortId,
+    outcome,
+    date: day(c.started_at),
+    time: clock(c.started_at),
+    when: `${day(c.started_at)} · ${clock(c.started_at)}`,
+    hour: hourOf(c.started_at),
+    after: c.after_hours,
+    caller: c.name,
+    location: c.location,
+    summary: c.summary,
+    uncertain: c.uncertain,
+    flags: c.flags ?? [],
+    details: details.filter((d): d is [string, string] => Boolean(d[1])).map(([k, v]) => ({ k, v })),
+    transcript: c.transcript,
+    attention: c.outcome === "escalated" ? "escalated" : c.flags?.includes("previous enquiry missed") ? "missed" : null,
+  };
 }
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   if (!process.env.DATABASE_URL) {
     return (
-      <main>
-        <h1>Aangan phone agent</h1>
-        <p className="note">DATABASE_URL is not set. Copy .env.example to .env.local and fill it in.</p>
-      </main>
+      <div className="shell">
+        <main className="main">
+          <div className="card empty">
+            <div className="orb" />
+            <div className="t">Not connected yet</div>
+            <p>DATABASE_URL is not set. Copy .env.example to .env.local and fill it in.</p>
+          </div>
+        </main>
+      </div>
     );
   }
 
@@ -43,215 +101,201 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const period = (PERIODS.some((p) => p.id === params.period) ? params.period : "all") as Period;
   const d = await loadDashboard(source, period);
   const href = (s: Source, p: Period) => `/?source=${s}&period=${p}`;
-  const pctWithin = d.answered ? Math.round((d.within5 / d.n) * 100) : 0;
+  const isDemo = source === "demo";
+  const pct = d.n ? Math.round((d.within5 / d.n) * 100) : 0;
+  const periodLabel = PERIODS.find((p) => p.id === period)!.label + (isDemo ? " · September 2026" : "");
+  const paidFixed = d.cost.fixedRows.filter((r) => r.amount > 0);
+  const freeFixed = d.cost.fixedRows.filter((r) => r.amount === 0);
 
   return (
-    <main>
-      <h1>Aangan phone agent</h1>
-      <p className="sub">Every call to the studio number: what it was, where it went, and what it cost.</p>
-
-      <nav className="filters" aria-label="Filters">
-        <div className="seg" role="group" aria-label="Data">
-          {SOURCES.map((s) => (
-            <a key={s.id} href={href(s.id, period)} aria-current={s.id === source}>
-              {s.label}
-              <span className="count">{counts[s.id] ?? 0}</span>
-            </a>
-          ))}
+    <div className="shell">
+      <aside className="side">
+        <div className="side-logo">
+          <img src="/aangan-logo.png" alt="Aangan Interiors" width={132} height={94} />
+          <span className="brand-pill">Phone agent</span>
         </div>
-        <div className="seg" role="group" aria-label="Period">
-          {PERIODS.map((p) => (
-            <a key={p.id} href={href(source, p.id)} aria-current={p.id === period}>
-              {p.label}
-            </a>
-          ))}
-        </div>
-      </nav>
-
-      {source === "demo" && (
-        <p className="note">
-          Demo: the 20 phone calls from September 2026, classified by hand against Nikhil&apos;s rubric, shown as if the agent
-          had answered them. Voice cost uses {inr(d.cost.voiceRate, 1)}/min, a market benchmark, not a Vaani Labs quote.
-        </p>
-      )}
-      {source === "replay" && (
-        <p className="note">Test replays: September transcripts sent through the live pipeline. No designer was messaged and no deal was created.</p>
-      )}
-
-      {d.n === 0 ? (
-        <p className="note">No calls in this period.</p>
-      ) : (
-        <>
-          <div className="grid hero-row">
-            <div className="card">
-              <h2>Answered within 5 minutes</h2>
-              <div className="hero-value">{pctWithin}%</div>
-              <div className="hero-label">
-                {d.within5} of {d.n} calls{d.medianAnswer !== null ? ` · median ${d.medianAnswer} s to answer` : ""} · {d.afterHours} outside 10am–7pm
-              </div>
-              <div className="before">Before the agent: ~48% of enquiries got no response within 48 hours.</div>
-            </div>
-            <div className="card">
-              <div className="tiles">
-                <div className="tile">
-                  <div className="tile-label">Qualified for a designer</div>
-                  <div className="tile-value">{d.qualified}</div>
-                  <div className="tile-foot">of {d.enquiries} enquiries</div>
-                </div>
-                <div className="tile">
-                  <div className="tile-label">Consultations booked</div>
-                  <div className="tile-value">{d.booked}</div>
-                  <div className="tile-foot">on the call</div>
-                </div>
-                <div className="tile">
-                  <div className="tile-label">Pipeline at stake</div>
-                  <div className="tile-value">₹{d.pipeline.low}–{d.pipeline.high} L</div>
-                  <div className="tile-foot">bookings × ₹8–14 L average</div>
-                </div>
-                <div className="tile">
-                  <div className="tile-label">Cost to run</div>
-                  <div className="tile-value">{inr(d.cost.total)}</div>
-                  <div className="tile-foot">{d.cost.perQualified !== null ? `${inr(d.cost.perQualified)} per qualified lead` : "no qualified leads"}</div>
-                </div>
-              </div>
-            </div>
+        <div className="side-mark">
+          <img src="/aangan-mark.png" alt="Aangan Interiors" width={45} height={34} />
+          <div>
+            <div className="word">AANGAN</div>
+            <div className="tag">Phone agent</div>
           </div>
+        </div>
 
-          <section className="grid two">
-            <div className="card">
-              <h2>Where the calls went</h2>
-              <p className="sub" style={{ marginBottom: 12 }}>
-                {d.booked} of {d.n} calls ended with a consultation booked. {d.priceAsked} asked for a price and were deflected.
-              </p>
-              <HBars data={d.funnel} ramp={["var(--ramp-4)", "var(--ramp-3)", "var(--ramp-2)", "var(--ramp-1)"]} shareOf={d.funnel[0].value} />
-            </div>
-            <div className="card">
-              <h2>Not sent to a designer</h2>
-              <p className="sub" style={{ marginBottom: 12 }}>Closed on the call, with the reason, so no designer time is spent.</p>
-              <HBars data={d.notForwarded} />
-            </div>
-          </section>
+        <div className="status">
+          <span className="dot" />
+          <span className="txt">Answering, day or night</span>
+        </div>
 
-          <section className="card">
-            <h2>Calls by hour of day</h2>
-            <p className="sub">
-              {d.afterHours} of {d.n} calls came outside front desk hours. The agent answers all of them.
-            </p>
-            <HourChart data={d.byHour} />
-          </section>
+        <nav className="side-nav" aria-label="Sections">
+          {INDEX.map(([label, anchor, dot]) => (
+            <a key={anchor} href={anchor}>
+              <span className="dot" style={{ background: dot }} />
+              {label}
+            </a>
+          ))}
+        </nav>
 
-          {d.attention.length > 0 && (
-            <section className="card">
-              <h2>Needs a person</h2>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr><th>When</th><th>Caller</th><th>Status</th><th>What happened</th></tr>
-                  </thead>
-                  <tbody>
-                    {d.attention.map((c) => (
-                      <tr key={c.call_id}>
-                        <td style={{ whiteSpace: "nowrap" }}>{when(c.started_at)}</td>
-                        <td>{c.name ?? c.phone ?? "Unknown"}</td>
-                        <td><Outcome c={c} /></td>
-                        <td>{c.summary}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        <div className="side-group">
+          <span>Data</span>
+          <div className="pills">
+            {SOURCES.map((s) => (
+              <a key={s.id} className="pill-link" href={href(s.id, period)} aria-current={s.id === source}>
+                {s.label}
+                <span className="count">{counts[s.id] ?? 0}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+        <div className="side-group">
+          <span>Period</span>
+          <div className="pills">
+            {PERIODS.map((p) => (
+              <a key={p.id} className="pill-link" href={href(source, p.id)} aria-current={p.id === period}>
+                {p.label}
+              </a>
+            ))}
+          </div>
+        </div>
+
+        <div className="side-note">
+          Front desk 10am–7pm
+          <br />
+          Pune city &amp; PCMC
+          {process.env.DASHBOARD_PASSWORD && (
+            <form method="post" action="/api/logout">
+              <button type="submit" className="signout">
+                Sign out
+              </button>
+            </form>
+          )}
+        </div>
+      </aside>
+
+      <main className="main">
+        {d.n === 0 ? (
+          <div className="card empty">
+            <div className="orb" />
+            <div className="t">A quiet courtyard</div>
+            <p>No calls in this period. {EMPTY_HINT[source]}</p>
+          </div>
+        ) : (
+          <>
+            <section id="overview" className="overview">
+              <div className="card hero">
+                <div className="hero-top">
+                  <span className="tag-pill">{periodLabel}</span>
+                  {isDemo && <span className="demo-pill">Demo data</span>}
+                </div>
+                <h1 className="headline">
+                  {d.n} calls answered. <span className="soft">{d.qualified} sent to a designer,</span>{" "}
+                  <span className="win">{d.booked} consultations booked.</span>
+                </h1>
+                <div className="compare">
+                  <span style={{ color: "#8d9094" }}>Before the agent</span>
+                  <div className="bar-row">
+                    <div className="bar" style={{ width: "52%", background: "#e8e5dc" }} />
+                    <span className="label" style={{ color: "#5b5f63" }}>52% replied within 48 hours</span>
+                  </div>
+                  <span>With the agent</span>
+                  <div className="bar-row">
+                    <div className="bar" style={{ flex: 1, background: "#a9c99f" }} />
+                    <span className="label">{pct}% within 5 minutes</span>
+                  </div>
+                </div>
+                {isDemo && (
+                  <p className="disclaimer">
+                    The 20 September calls, classified by hand against Nikhil&apos;s rubric and shown as if the agent had answered them.
+                    Voice cost uses {inr(d.cost.voiceRate, 1)}/min, a market benchmark, not a Vaani Labs quote.
+                  </p>
+                )}
+              </div>
+
+              <div className="stats">
+                <div className="stat tone-sage">
+                  <span className="k">Answered in 5 min</span>
+                  <span className="v">{pct}%</span>
+                </div>
+                <div className="stat tone-sky">
+                  <span className="k">Qualified</span>
+                  <span className="v">
+                    {d.qualified}
+                    <small> of {d.enquiries}</small>
+                  </span>
+                </div>
+                <div className="stat tone-lavender">
+                  <span className="k">After hours</span>
+                  <span className="v">
+                    {d.afterHours}
+                    <small> calls</small>
+                  </span>
+                </div>
+                <div className="stat tone-butter">
+                  <span className="k">Pipeline at stake</span>
+                  <span className="v">
+                    ₹{d.pipeline.low}–{d.pipeline.high}
+                    <small> L</small>
+                  </span>
+                </div>
+                <div className="stat tone-blush">
+                  <span className="k">Cost to run</span>
+                  <span className="v">{inr(d.cost.total)}</span>
+                </div>
               </div>
             </section>
-          )}
 
-          <section className="card">
-            <h2>What it cost</h2>
-            <p className="sub" style={{ marginBottom: 8 }}>
-              {inr(d.cost.total)} in this period: {d.cost.perCall !== null ? `${inr(d.cost.perCall, 1)} per call` : ""}
-              {d.cost.perQualified !== null ? `, ${inr(d.cost.perQualified)} per qualified lead` : ""}. Fixed costs cover {d.cost.months}{" "}
-              {d.cost.months === 1 ? "month" : "months"}.
-            </p>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr><th>Item</th><th>Basis</th><th className="num">Cost</th></tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>Voice (Vaani Labs)</td>
-                    <td className="muted">{Math.round(d.cost.minutes)} min × {inr(d.cost.voiceRate, 1)}/min</td>
-                    <td className="num">{inr(d.cost.voice)}</td>
-                  </tr>
-                  <tr>
-                    <td>Call classification (Gemini Flash)</td>
-                    <td className="muted">{d.n} calls, logged per call</td>
-                    <td className="num">{inr(d.cost.ai, 2)}</td>
-                  </tr>
-                  {d.cost.fixedRows.map((r) => (
-                    <tr key={r.item}>
-                      <td>{r.item}</td>
-                      <td className="muted">{r.note}</td>
-                      <td className="num">{inr(r.amount)}</td>
-                    </tr>
-                  ))}
-                  <tr className="total">
-                    <td>Total</td>
-                    <td />
-                    <td className="num">{inr(d.cost.total)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
+            <Explorer
+              calls={d.calls.map(toView)}
+              n={d.n}
+              afterHours={d.afterHours}
+              priceAsked={d.priceAsked}
+              funnel={d.funnel}
+              notForwarded={d.notForwarded}
+            />
 
-          <section className="card">
-            <h2>Every call</h2>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr><th>When</th><th>Caller</th><th>Where</th><th>Outcome</th><th>Summary</th><th>Handoff</th></tr>
-                </thead>
-                <tbody>
-                  {d.calls.map((c) => (
-                    <tr key={c.call_id}>
-                      <td style={{ whiteSpace: "nowrap" }}>
-                        {when(c.started_at)}
-                        {c.after_hours && <div className="muted" style={{ fontSize: 12 }}>after hours</div>}
-                      </td>
-                      <td>{c.name ?? <span className="muted">Not given</span>}</td>
-                      <td>{c.location ?? <span className="muted">—</span>}</td>
-                      <td><Outcome c={c} /></td>
-                      <td style={{ minWidth: 280 }}>
-                        {c.flags.map((f) => <span key={f} className="flag">{f}</span>)}
-                        <div>{c.summary}</div>
-                        {c.uncertain && <div className="muted" style={{ fontSize: 12 }}>Unclear: {c.uncertain}</div>}
-                        {c.transcript && (
-                          <details>
-                            <summary>Transcript</summary>
-                            <pre>{c.transcript}</pre>
-                          </details>
-                        )}
-                      </td>
-                      <td style={{ whiteSpace: "nowrap", fontSize: 12 }}>
-                        {c.outcome === "qualified" || c.outcome === "escalated" ? (
-                          <>
-                            <div>{c.telegram_sent ? "Telegram sent" : <span className="muted">Telegram not sent</span>}</div>
-                            {c.outcome === "qualified" && (
-                              <div>{c.hubspot_deal_id ? `HubSpot deal ${c.hubspot_deal_id}` : <span className="muted">No HubSpot deal</span>}</div>
-                            )}
-                            {c.consultation_at && <div>Consult {when(c.consultation_at)}</div>}
-                          </>
-                        ) : (
-                          <span className="muted">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      )}
-    </main>
+            <section id="cost" className="card cost">
+              <div>
+                <h2 className="h2">What it cost</h2>
+                <p>
+                  {inr(d.cost.total)} in this period: {d.cost.perCall !== null ? inr(d.cost.perCall, 1) : "—"} per call and{" "}
+                  {d.cost.perQualified !== null ? inr(d.cost.perQualified) : "—"} per qualified lead.
+                  {paidFixed.length === 0 && " No fixed platform costs have been entered yet."}
+                </p>
+              </div>
+              <div className="lines">
+                <div className="line">
+                  <span>
+                    Voice · Vaani Labs <small>{Math.round(d.cost.minutes)} min × {inr(d.cost.voiceRate, 1)}</small>
+                  </span>
+                  <span>{inr(d.cost.voice)}</span>
+                </div>
+                <div className="line">
+                  <span>
+                    Classification · Gemini Flash <small>{d.n} calls</small>
+                  </span>
+                  <span>{inr(d.cost.ai, 2)}</span>
+                </div>
+                {paidFixed.map((r) => (
+                  <div className="line" key={r.item}>
+                    <span>
+                      {r.item}
+                      {d.cost.months > 1 && <small> {d.cost.months} months</small>}
+                    </span>
+                    <span>{inr(r.amount)}</span>
+                  </div>
+                ))}
+                <div className="line total">
+                  <span className="lbl">Total</span>
+                  <span className="amt">{inr(d.cost.total)}</span>
+                </div>
+                {freeFixed.length > 0 && (
+                  <div className="free">Entered as ₹0: {freeFixed.map((r) => r.item.replace(/ \(.*\)$/, "")).join(", ")}.</div>
+                )}
+              </div>
+            </section>
+          </>
+        )}
+      </main>
+    </div>
   );
 }
