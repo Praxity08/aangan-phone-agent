@@ -5,6 +5,8 @@ const num = (v: string | undefined, fallback: number) => {
 
 export const config = {
   geminiModel: process.env.GEMINI_MODEL || "gemini-3.8-flash",
+  // Used when the main model errors or stalls (Google "high demand"). Its cost is logged at the main model's rates.
+  geminiFallbackModel: process.env.GEMINI_FALLBACK_MODEL || "gemini-3.7-flash",
   geminiInputUsdPerM: num(process.env.GEMINI_INPUT_USD_PER_M, 0.75),
   geminiOutputUsdPerM: num(process.env.GEMINI_OUTPUT_USD_PER_M, 3.75),
   usdToInr: num(process.env.USD_TO_INR, 88),

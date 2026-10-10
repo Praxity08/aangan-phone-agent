@@ -90,8 +90,6 @@ export async function classifyCall(transcript: string, startedAt: Date): Promise
   if (!key) throw new Error("GEMINI_API_KEY is not set");
 
   const when = startedAt.toLocaleString("en-IN", { timeZone: config.timeZone, dateStyle: "full", timeStyle: "short" });
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.geminiModel}:generateContent`;
-
   const request = JSON.stringify({
     systemInstruction: { parts: [{ text: buildSystemPrompt() }] },
     contents: [{ role: "user", parts: [{ text: `Call received ${when} (IST).\n\nTranscript:\n${transcript}` }] }],
@@ -104,30 +102,34 @@ export async function classifyCall(transcript: string, startedAt: Date): Promise
     },
   });
 
-  // Gemini returns 429/500/503 under load ("high demand") or can stall; both usually pass, so retry with back-off.
-  // Worst case 4 × 45 s + 17 s of waiting stays inside the webhook's 5-minute budget.
+  // Gemini can answer 429/500/503 or take over a minute when Google is under heavy load. Try the main model,
+  // then a fallback model, each with up to 2 minutes: 2 × 120 s + 5 s stays inside the webhook's 5-minute budget.
+  const attempts = [
+    { model: config.geminiModel, wait: 0 },
+    { model: config.geminiFallbackModel, wait: 5000 },
+  ];
   let res: Response | null = null;
   let lastError = "";
-  for (const wait of [0, 2000, 5000, 10000]) {
-    if (wait) await new Promise((r) => setTimeout(r, wait));
+  for (const a of attempts) {
+    if (a.wait) await new Promise((r) => setTimeout(r, a.wait));
     try {
-      res = await fetch(url, {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${a.model}:generateContent`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-goog-api-key": key },
         body: request,
-        signal: AbortSignal.timeout(45_000),
+        signal: AbortSignal.timeout(120_000),
       });
     } catch (err) {
       res = null;
-      lastError = `Gemini request failed: ${(err as Error).message}`;
+      lastError = `${a.model}: ${(err as Error).message}`;
       continue;
     }
-    if (![429, 500, 503].includes(res.status)) break;
-    lastError = `Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`;
+    if (res.ok) break;
+    lastError = `${a.model} ${res.status}: ${(await res.text()).slice(0, 300)}`;
+    res = null;
   }
 
   if (!res) throw new Error(lastError);
-  if (!res.ok) throw new Error(lastError || `Gemini ${res.status}: ${await res.text()}`);
   const body = await res.json();
   const text = body.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "";
   const record = JSON.parse(text) as CallRecord;
