@@ -12,7 +12,7 @@ async function post(path: string, body: unknown) {
   return res.json() as Promise<{ id: string }>;
 }
 
-/** Qualified call → contact + deal at "Appointment scheduled". No amount: pricing is set at consultation. */
+/** Qualified call → contact + deal at HUBSPOT_DEAL_STAGE. No amount: pricing is set at consultation. */
 export async function createDeal(r: CallRecord, phone: string | null) {
   if (!process.env.HUBSPOT_TOKEN) return { skipped: "HUBSPOT_TOKEN not set" as const };
 
@@ -21,8 +21,9 @@ export async function createDeal(r: CallRecord, phone: string | null) {
   const deal = await post("deals", {
     properties: {
       dealname: `${r.name ?? "Phone enquiry"} · ${place}`,
-      pipeline: "default",
-      dealstage: "appointmentscheduled",
+      // Stage ids differ per account (Aangan's pipeline: "Lead Captured" = 4420487875).
+      pipeline: process.env.HUBSPOT_PIPELINE || "default",
+      dealstage: process.env.HUBSPOT_DEAL_STAGE || "appointmentscheduled",
       description: r.summary,
     },
     associations: [
