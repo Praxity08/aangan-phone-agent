@@ -410,3 +410,24 @@ section[id] { scroll-margin-top: 20px; }
 .name-note { font-size: 12px; opacity: 0.75; }
 .edited-tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--glass); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
+
+/* ---------- Theme switch transition ---------- */
+/* View Transition: the old and new page cross-fade instead of snapping. */
+:root.theme-switching::view-transition-group(root),
+:root.theme-switching::view-transition-old(root),
+:root.theme-switching::view-transition-new(root) {
+  animation-duration: 480ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* Fallback for browsers without View Transitions: colours ease between themes. */
+:root.theme-fading,
+:root.theme-fading *,
+:root.theme-fading *::before,
+:root.theme-fading *::after {
+  transition: background-color 450ms ease, color 450ms ease, border-color 450ms ease, fill 450ms ease,
+    stroke 450ms ease, box-shadow 450ms ease, filter 450ms ease !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root.theme-switching::view-transition-old(root),
+  :root.theme-switching::view-transition-new(root) { animation: none; }
+}
