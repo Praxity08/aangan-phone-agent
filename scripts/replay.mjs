@@ -12,6 +12,7 @@ const calls = JSON.parse(readFileSync(new URL("../data/september-phone-calls.jso
 const expected = JSON.parse(readFileSync(new URL("../data/september-records.json", import.meta.url)));
 const only = process.argv.slice(2);
 const run = Date.now().toString(36);
+const gap = Number(process.env.REPLAY_GAP_MS || 0); // space calls out to stay under a free-tier per-minute quota
 const todo = calls.filter((c) => c.id !== "T08" && (!only.length || only.includes(c.id))); // T08: missed call, no transcript
 
 for (const c of todo) {
@@ -28,6 +29,7 @@ for (const c of todo) {
     }),
   });
   if (res.status !== 202) console.log(`! ${c.id} webhook answered ${res.status}: ${(await res.text()).slice(0, 120)}`);
+  if (gap) await new Promise((r) => setTimeout(r, gap));
 }
 console.log(`Sent ${todo.length} calls. Waiting for classification…`);
 

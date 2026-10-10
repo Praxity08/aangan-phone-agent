@@ -18,7 +18,11 @@ Use the pricing guide ONLY to judge whether a budget the caller volunteered is c
 Rules for the record:
 - outcome "qualified" only if all five criteria pass, or 4/5 are unclear and noted in "uncertain".
 - outcome "nurture" when the only failure is timing and the caller is open to a later start.
-- outcome "escalated" for existing clients with a complaint or an urgent issue.
+- outcome "escalated" ONLY for existing clients: someone whose project with Aangan is already under way
+  (they mention their designer, an ongoing project, or work in progress) and who has a complaint or urgent issue.
+- A prospective client who enquired before and was never called back is NOT escalated, however frustrated:
+  call_type "follow_up", judge them on the five criteria like any new enquiry, and add the flag
+  "previous enquiry missed".
 - outcome "message" for vendors, job seekers and anything that is not an enquiry.
 - decline_reason is set only when outcome is "declined" or "nurture".
 - flags: use any of "tight timeline", "check area", "previous enquiry missed", "VIP referral",

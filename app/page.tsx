@@ -33,7 +33,7 @@ const EMPTY_HINT: Record<Source, string> = {
 
 /** One stored call → what the list and the designer brief show. */
 function toView(c: CallRow): CallView {
-  const outcome = (c.outcome in { qualified: 1, nurture: 1, escalated: 1, declined: 1, message: 1 } ? c.outcome : "unclassified") as OutcomeKey;
+  const outcome = (c.outcome in { qualified: 1, nurture: 1, escalated: 1, declined: 1, message: 1, pending: 1 } ? c.outcome : "unclassified") as OutcomeKey;
   const consultPlace = c.consultation_type === "site" ? "Site visit" : c.consultation_type === "studio" ? "Studio" : null;
   const consult =
     consultPlace || c.consultation_at

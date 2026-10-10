@@ -222,7 +222,7 @@ section[id] { scroll-margin-top: 20px; }
 .out-nurture { --bg: #f8efcf; --fg: #77591a; --solid: #e6cc7a; }
 .out-escalated { --bg: #ebe5f6; --fg: #56487d; --solid: #b4a3db; }
 .out-declined { --bg: #f6e1db; --fg: #87493d; --solid: #e8b5a8; }
-.out-message, .out-unclassified { --bg: #efede7; --fg: #5b5f63; --solid: #d6d3ca; }
+.out-message, .out-unclassified, .out-pending { --bg: #efede7; --fg: #5b5f63; --solid: #d6d3ca; }
 
 .brief { position: sticky; top: 28px; background: var(--card); border-radius: 28px; overflow: hidden; box-shadow: var(--shadow); }
 @media (max-width: 819px) { .brief { position: static; } }
@@ -241,6 +241,8 @@ section[id] { scroll-margin-top: 20px; }
 .tile .v { margin-top: 2px; font-size: 13px; overflow-wrap: anywhere; }
 .unclear { padding: 14px 16px; border-radius: 16px; background: #f8efcf; font-size: 13px; color: #5c4410; }
 .unclear b { font-weight: 600; }
+.retry { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+.retry .chip:disabled { opacity: 0.5; cursor: default; }
 .brief details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 .brief details pre {
   white-space: pre-wrap; font: 12px/1.6 var(--font-body), system-ui, sans-serif; color: var(--body-mid);

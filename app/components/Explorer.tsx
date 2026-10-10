@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
-export type OutcomeKey = "qualified" | "nurture" | "escalated" | "declined" | "message" | "unclassified";
+export type OutcomeKey = "qualified" | "nurture" | "escalated" | "declined" | "message" | "unclassified" | "pending";
 
 export interface CallView {
   id: string;
@@ -30,8 +31,9 @@ export const OUTCOME_LABEL: Record<OutcomeKey, string> = {
   declined: "Declined",
   message: "Not an enquiry",
   unclassified: "Not classified",
+  pending: "Classifying",
 };
-const ORDER: OutcomeKey[] = ["qualified", "nurture", "escalated", "declined", "message", "unclassified"];
+const ORDER: OutcomeKey[] = ["qualified", "nurture", "escalated", "declined", "message", "unclassified", "pending"];
 const SKY = ["#dbe7f2", "#bcd3e8", "#94b6d6", "#6f95bd"];
 const hourLabel = (h: number) => (h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`);
 
@@ -48,6 +50,19 @@ interface Props {
 export function Explorer({ calls, n, afterHours, priceAsked, funnel, notForwarded }: Props) {
   const [filter, setFilter] = useState<OutcomeKey | "all">("all");
   const [selId, setSelId] = useState<string | null>(null);
+  const [retry, setRetry] = useState<{ id: string; state: "sending" | "sent" | "failed" } | null>(null);
+  const router = useRouter();
+
+  const reclassify = async (id: string) => {
+    setRetry({ id, state: "sending" });
+    const res = await fetch("/api/reclassify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ callId: id }),
+    }).catch(() => null);
+    setRetry({ id, state: res?.status === 202 ? "sent" : "failed" });
+    if (res?.status === 202) setTimeout(() => router.refresh(), 45_000);
+  };
 
   const count = (k: OutcomeKey) => calls.filter((c) => c.outcome === k).length;
   const listed = calls.filter((c) => filter === "all" || c.outcome === filter);
@@ -285,8 +300,28 @@ export function Explorer({ calls, n, afterHours, priceAsked, funnel, notForwarde
                 )}
                 {sel.uncertain && (
                   <div className="unclear">
-                    <b>Unclear · </b>
+                    <b>{sel.outcome === "unclassified" ? "Not classified · " : "Unclear · "}</b>
                     {sel.uncertain}
+                  </div>
+                )}
+                {sel.outcome === "unclassified" && (
+                  <div className="retry">
+                    <button
+                      type="button"
+                      className="chip"
+                      aria-pressed="true"
+                      disabled={retry?.id === sel.id && retry.state !== "failed"}
+                      onClick={() => reclassify(sel.id)}
+                    >
+                      Retry classification
+                    </button>
+                    {retry?.id === sel.id && (
+                      <span>
+                        {retry.state === "sending" && "Sending…"}
+                        {retry.state === "sent" && "Classifying. This page refreshes in about a minute."}
+                        {retry.state === "failed" && "Couldn't start it. Try again in a moment."}
+                      </span>
+                    )}
                   </div>
                 )}
                 {sel.transcript && (
