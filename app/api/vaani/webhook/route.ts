@@ -1,5 +1,6 @@
 import { webhookAuthorised } from "@/lib/auth";
 import { after } from "next/server";
+import { sql } from "@/lib/db";
 import { classifyAndHandOff, storeCall } from "@/lib/process-call";
 import { normaliseVaaniPayload } from "@/lib/vaani";
 
@@ -23,14 +24,22 @@ export async function POST(req: Request) {
       : typeof o;
   console.log("vaani webhook payload shape", JSON.stringify(shape(body)));
 
+  // Keep live payloads in webhook_log so the adapter can be checked against what Vaani really sends.
+  const source = new URL(req.url).searchParams.get("source") === "replay" ? "replay" : "live";
+  const log = (ok: boolean, error: string | null) =>
+    source === "live"
+      ? sql()`INSERT INTO webhook_log (ok, error, shape, body) VALUES (${ok}, ${error}, ${JSON.stringify(shape(body))}, ${JSON.stringify(body)})`.catch(() => {})
+      : Promise.resolve();
+
   let call;
   try {
     call = normaliseVaaniPayload(body);
   } catch (err) {
+    await log(false, (err as Error).message);
     return Response.json({ error: (err as Error).message }, { status: 400 });
   }
+  await log(true, call.transcript ? null : "no transcript in payload");
 
-  const source = new URL(req.url).searchParams.get("source") === "replay" ? "replay" : "live";
   const { stored } = await storeCall(call, source);
   if (!stored) return Response.json({ ok: true, call_id: call.call_id, duplicate: true });
 
