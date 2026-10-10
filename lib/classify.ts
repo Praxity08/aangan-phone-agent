@@ -92,18 +92,22 @@ export async function classifyCall(transcript: string, startedAt: Date): Promise
   const when = startedAt.toLocaleString("en-IN", { timeZone: config.timeZone, dateStyle: "full", timeStyle: "short" });
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.geminiModel}:generateContent`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-goog-api-key": key },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: buildSystemPrompt() }] },
-      contents: [{ role: "user", parts: [{ text: `Call received ${when} (IST).\n\nTranscript:\n${transcript}` }] }],
-      generationConfig: { temperature: 0, responseMimeType: "application/json", responseSchema },
-    }),
+  const request = JSON.stringify({
+    systemInstruction: { parts: [{ text: buildSystemPrompt() }] },
+    contents: [{ role: "user", parts: [{ text: `Call received ${when} (IST).\n\nTranscript:\n${transcript}` }] }],
+    generationConfig: { temperature: 0, responseMimeType: "application/json", responseSchema },
   });
 
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
-  const body = await res.json();
+  // Gemini returns 429/500/503 under load ("high demand"); those pass in seconds, so retry with back-off.
+  let res: Response | null = null;
+  for (const wait of [0, 2000, 5000, 10000]) {
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    res = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": key }, body: request });
+    if (![429, 500, 503].includes(res.status)) break;
+  }
+
+  if (!res!.ok) throw new Error(`Gemini ${res!.status}: ${await res!.text()}`);
+  const body = await res!.json();
   const text = body.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "";
   const record = JSON.parse(text) as CallRecord;
   record.flags ??= [];
