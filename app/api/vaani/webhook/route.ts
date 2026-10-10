@@ -42,8 +42,9 @@ export async function POST(req: Request) {
 
   // Only the end of a call carries the transcript. Acknowledge other events (started, ringing…) and do nothing.
   const event = String(body.event ?? body.event_type ?? body.type ?? "");
-  if (event && !/end|complet|finish|hang|disconnect|analy/i.test(event)) {
-    await log(true, `ignored event ${event}`, false);
+  // Vaani Labs sends the finished call (with transcript) as "call_postprocessing".
+  if (event && !/postprocess|end|complet|finish|hang|disconnect|analy/i.test(event)) {
+    await log(true, `ignored event ${event}`, true);
     return Response.json({ ok: true, ignored: event });
   }
 
