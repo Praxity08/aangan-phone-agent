@@ -11,6 +11,8 @@ const ERRORS: Record<string, string> = {
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
   const message = error ? ERRORS[error] ?? ERRORS.empty : null;
+  // Sample build only: set LOGIN_PASSWORD_HINT on Vercel to show the password here; remove it to hide.
+  const hint = process.env.LOGIN_PASSWORD_HINT;
 
   return (
     <div className="login">
@@ -48,6 +50,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           )}
           <button type="submit">Sign in</button>
         </form>
+        {hint && (
+          <p className="hint tone-butter">
+            Sample build · password <b>{hint}</b>
+          </p>
+        )}
         <p className="foot">Front desk 10am–7pm · Pune city &amp; PCMC</p>
       </main>
     </div>
