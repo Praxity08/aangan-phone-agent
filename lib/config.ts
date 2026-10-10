@@ -10,7 +10,7 @@ export const config = {
   geminiInputUsdPerM: num(process.env.GEMINI_INPUT_USD_PER_M, 0.75),
   geminiOutputUsdPerM: num(process.env.GEMINI_OUTPUT_USD_PER_M, 3.75),
   usdToInr: num(process.env.USD_TO_INR, 88),
-  voiceInrPerMin: num(process.env.VOICE_INR_PER_MIN, 5.5),
+  voiceInrPerMin: num(process.env.VOICE_INR_PER_MIN, 5.6),
   timeZone: "Asia/Kolkata",
   officeOpenHour: 10,
   officeCloseHour: 19,

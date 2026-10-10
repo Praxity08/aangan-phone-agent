@@ -206,7 +206,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
                 {isDemo && (
                   <p className="disclaimer">
                     The 20 September calls, classified by hand against Nikhil&apos;s rubric and shown as if the agent had answered them.
-                    Voice cost uses {inr(d.cost.voiceRate, 1)}/min, a market benchmark, not a Vaani Labs quote.
+                    Voice cost uses {inr(d.cost.voiceRate, 2)}/min, Vaani Labs&apos; estimated rate.
                   </p>
                 )}
               </div>
@@ -265,7 +265,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
               <div className="lines">
                 <div className="line">
                   <span>
-                    Voice · Vaani Labs <small>{Math.round(d.cost.minutes)} min × {inr(d.cost.voiceRate, 1)}</small>
+                    Voice · Vaani Labs <small>{Math.round(d.cost.minutes)} min × {inr(d.cost.voiceRate, 2)}</small>
                   </span>
                   <span>{inr(d.cost.voice)}</span>
                 </div>

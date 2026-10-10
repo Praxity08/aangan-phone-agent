@@ -7,7 +7,7 @@ const sql = neon(process.env.DATABASE_URL);
 const calls = JSON.parse(readFileSync(new URL("../data/september-phone-calls.json", import.meta.url)));
 const records = JSON.parse(readFileSync(new URL("../data/september-records.json", import.meta.url)));
 
-const voiceRate = Number(process.env.VOICE_INR_PER_MIN || 5.5);
+const voiceRate = Number(process.env.VOICE_INR_PER_MIN || 5.6);
 const usdToInr = Number(process.env.USD_TO_INR || 88);
 const inRate = Number(process.env.GEMINI_INPUT_USD_PER_M || 0.75);
 const outRate = Number(process.env.GEMINI_OUTPUT_USD_PER_M || 3.75);
