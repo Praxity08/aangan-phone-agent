@@ -106,30 +106,38 @@ export async function classifyCall(transcript: string, startedAt: Date): Promise
     },
   });
 
-  // Gemini can answer 429/500/503 or take over a minute when Google is under heavy load. Try the main model,
-  // then a fallback model, each with up to 2 minutes: 2 × 120 s + 5 s stays inside the webhook's 5-minute budget.
-  const attempts = [
-    { model: config.geminiModel, wait: 0 },
-    { model: config.geminiFallbackModel, wait: 5000 },
-  ];
+  // Gemini can answer 429/500/503 or take over a minute when Google is under heavy load. Alternate between the
+  // main and fallback model, pausing between rounds, for up to ~4 minutes (inside the webhook's 5-minute budget).
+  const models = [config.geminiModel, config.geminiFallbackModel];
+  const deadline = Date.now() + 230_000;
+  const pauses = [0, 5_000, 15_000, 30_000, 45_000, 60_000];
   let res: Response | null = null;
   let lastError = "";
-  for (const a of attempts) {
-    if (a.wait) await new Promise((r) => setTimeout(r, a.wait));
+  for (let i = 0; Date.now() < deadline; i++) {
+    const wait = pauses[Math.min(i, pauses.length - 1)];
+    if (wait) await new Promise((r) => setTimeout(r, Math.min(wait, Math.max(0, deadline - Date.now()))));
+    const model = models[i % models.length];
+    const timeLeft = deadline - Date.now();
+    if (timeLeft < 5_000) break;
     try {
-      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${a.model}:generateContent`, {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-goog-api-key": key },
         body: request,
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(Math.min(120_000, timeLeft)),
       });
     } catch (err) {
       res = null;
-      lastError = `${a.model}: ${(err as Error).message}`;
+      lastError = `${model}: ${(err as Error).message}`;
       continue;
     }
     if (res.ok) break;
-    lastError = `${a.model} ${res.status}: ${(await res.text()).slice(0, 300)}`;
+    lastError = `${model} ${res.status}: ${(await res.text()).slice(0, 300)}`;
+    // Only overload and rate errors are worth retrying; anything else (bad key, bad request) won't fix itself.
+    if (![429, 500, 502, 503, 504].includes(res.status)) {
+      res = null;
+      break;
+    }
     res = null;
   }
 

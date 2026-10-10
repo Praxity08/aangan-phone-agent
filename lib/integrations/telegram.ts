@@ -54,3 +54,17 @@ export async function sendEscalation(r: CallRecord, phone: string | null) {
     `The caller was told a senior person will call back.`;
   return send(chat, html);
 }
+
+/** Gemini couldn't classify a live call: still tell the studio a call came in, so no lead is missed. */
+export async function sendUnclassifiedNotice(call: { phone: string | null; started_at: string; transcript: string }) {
+  const chat = process.env.TELEGRAM_DESIGNERS_CHAT_ID;
+  if (!chat) return { skipped: "TELEGRAM_DESIGNERS_CHAT_ID not set" };
+  const when = new Date(call.started_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" });
+  const excerpt = call.transcript.length > 700 ? `${call.transcript.slice(0, 700)}…` : call.transcript;
+  const html =
+    `<b>New call · not classified yet</b>\n\n` +
+    `<b>Phone:</b> ${esc(call.phone ?? "unknown")}\n<b>When:</b> ${esc(when)}\n\n` +
+    `<i>${esc(excerpt)}</i>\n\n` +
+    `The AI couldn't classify this call automatically. Read it on the dashboard and use "Retry classification".`;
+  return send(chat, html);
+}

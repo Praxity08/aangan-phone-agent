@@ -2,7 +2,7 @@ import { classifyCall } from "./classify";
 import { config, isAfterHours } from "./config";
 import { sql } from "./db";
 import { createDeal } from "./integrations/hubspot";
-import { sendDesignerBrief, sendEscalation } from "./integrations/telegram";
+import { sendDesignerBrief, sendEscalation, sendUnclassifiedNotice } from "./integrations/telegram";
 import type { CallRecord, IncomingCall } from "./types";
 
 type Source = "live" | "replay";
@@ -68,6 +68,14 @@ export async function classifyAndHandOff(callId: string) {
       UPDATE calls SET outcome = 'unclassified', summary = 'Not classified yet. Read the transcript.',
         uncertain = ${`Classifier failed: ${(err as Error).message.slice(0, 300)}`}
       WHERE call_id = ${callId}`;
+    if (row.source === "live") {
+      try {
+        const sent = await sendUnclassifiedNotice({ phone: row.phone, started_at: row.started_at, transcript: row.transcript });
+        if ("sent" in sent) await db`UPDATE calls SET telegram_sent = true WHERE call_id = ${callId}`;
+      } catch (e) {
+        console.error("telegram unclassified notice failed", callId, (e as Error).message);
+      }
+    }
     return;
   }
 
