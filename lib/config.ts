@@ -4,9 +4,9 @@ const num = (v: string | undefined, fallback: number) => {
 };
 
 export const config = {
-  geminiModel: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-  geminiInputUsdPerM: num(process.env.GEMINI_INPUT_USD_PER_M, 0.3),
-  geminiOutputUsdPerM: num(process.env.GEMINI_OUTPUT_USD_PER_M, 2.5),
+  geminiModel: process.env.GEMINI_MODEL || "gemini-3.8-flash",
+  geminiInputUsdPerM: num(process.env.GEMINI_INPUT_USD_PER_M, 0.75),
+  geminiOutputUsdPerM: num(process.env.GEMINI_OUTPUT_USD_PER_M, 3.75),
   usdToInr: num(process.env.USD_TO_INR, 88),
   voiceInrPerMin: num(process.env.VOICE_INR_PER_MIN, 5.5),
   timeZone: "Asia/Kolkata",

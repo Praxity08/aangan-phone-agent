@@ -9,8 +9,8 @@ const records = JSON.parse(readFileSync(new URL("../data/september-records.json"
 
 const voiceRate = Number(process.env.VOICE_INR_PER_MIN || 5.5);
 const usdToInr = Number(process.env.USD_TO_INR || 88);
-const inRate = Number(process.env.GEMINI_INPUT_USD_PER_M || 0.3);
-const outRate = Number(process.env.GEMINI_OUTPUT_USD_PER_M || 2.5);
+const inRate = Number(process.env.GEMINI_INPUT_USD_PER_M || 0.75);
+const outRate = Number(process.env.GEMINI_OUTPUT_USD_PER_M || 3.75);
 // Typical classification: ~4,500 prompt tokens (rule files + transcript), ~350 output tokens.
 const aiTokens = { input: 4500, output: 350 };
 const aiCost = ((aiTokens.input * inRate + aiTokens.output * outRate) / 1e6) * usdToInr;
