@@ -15,6 +15,7 @@ export interface CallView {
   hour: number;
   after: boolean;
   caller: string | null;
+  nameEdited: boolean;
   location: string | null;
   summary: string | null;
   uncertain: string | null;
@@ -34,7 +35,7 @@ export const OUTCOME_LABEL: Record<OutcomeKey, string> = {
   pending: "Classifying",
 };
 const ORDER: OutcomeKey[] = ["qualified", "nurture", "escalated", "declined", "message", "unclassified", "pending"];
-const SKY = ["#dbe7f2", "#bcd3e8", "#94b6d6", "#6f95bd"];
+const SKY = ["var(--sky-1)", "var(--sky-2)", "var(--sky-3)", "var(--sky-4)"];
 const hourLabel = (h: number) => (h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`);
 
 interface Props {
@@ -51,6 +52,11 @@ export function Explorer({ calls, n, afterHours, priceAsked, funnel, notForwarde
   const [filter, setFilter] = useState<OutcomeKey | "all">("all");
   const [selId, setSelId] = useState<string | null>(null);
   const [retry, setRetry] = useState<{ id: string; state: "sending" | "sent" | "failed" } | null>(null);
+  // Names corrected on this page, shown at once while the server data refreshes.
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState<{ id: string; value: string; saving: boolean; error: string | null } | null>(null);
+  const [savedNote, setSavedNote] = useState<{ id: string; text: string } | null>(null);
+  const nameOf = (c: CallView) => names[c.id] ?? c.caller;
   const router = useRouter();
 
   const reclassify = async (id: string) => {
@@ -62,6 +68,25 @@ export function Explorer({ calls, n, afterHours, priceAsked, funnel, notForwarde
     }).catch(() => null);
     setRetry({ id, state: res?.status === 202 ? "sent" : "failed" });
     if (res?.status === 202) setTimeout(() => router.refresh(), 45_000);
+  };
+
+  const saveName = async () => {
+    if (!editing) return;
+    const value = editing.value.replace(/\s+/g, " ").trim();
+    if (!value) return setEditing({ ...editing, error: "Enter a name." });
+    setEditing({ ...editing, saving: true, error: null });
+    const res = await fetch("/api/calls/rename", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ callId: editing.id, name: value }),
+    }).catch(() => null);
+    const body = res ? await res.json().catch(() => ({})) : {};
+    if (!res?.ok) return setEditing({ ...editing, saving: false, error: body.error ?? "Couldn't save. Try again." });
+    setNames((n) => ({ ...n, [editing.id]: body.name }));
+    const crm = body.hubspot === "updated" ? " HubSpot deal renamed too." : body.hubspot === "failed" ? " HubSpot couldn't be updated." : "";
+    setSavedNote({ id: editing.id, text: `Name saved.${crm}` });
+    setEditing(null);
+    router.refresh();
   };
 
   const count = (k: OutcomeKey) => calls.filter((c) => c.outcome === k).length;
@@ -88,7 +113,7 @@ export function Explorer({ calls, n, afterHours, priceAsked, funnel, notForwarde
         <section id="attention" className="card attention">
           <div className="title-row">
             <h2 className="h2">Needs a person</h2>
-            <span className="count-pill">{attention.length} open</span>
+            <span className="count-pill tone-lavender">{attention.length} open</span>
           </div>
           <div className="att-grid">
             {attention.map((c) => (
@@ -103,7 +128,7 @@ export function Explorer({ calls, n, afterHours, priceAsked, funnel, notForwarde
                   <span className="when">{c.when}</span>
                 </div>
                 <div className="who">
-                  {c.caller ?? "Unknown caller"}
+                  {nameOf(c) ?? "Unknown caller"}
                   <span> · {c.location ?? "—"}</span>
                 </div>
                 <p className="sum">{c.summary}</p>
@@ -169,7 +194,7 @@ export function Explorer({ calls, n, afterHours, priceAsked, funnel, notForwarde
               <span>Closed on the call, not sent to a designer</span>
               <div className="pills">
                 {notForwarded.map((r) => (
-                  <span key={r.label} className="reason-pill">
+                  <span key={r.label} className="reason-pill tone-blush">
                     {r.label} · {r.value}
                   </span>
                 ))}
@@ -188,11 +213,11 @@ export function Explorer({ calls, n, afterHours, priceAsked, funnel, notForwarde
             </p>
           </div>
           <div className="key">
-            <span className="k" style={{ background: "#eef4ea", color: "#3f5a3b" }}>
+            <span className="k open">
               <i style={{ background: "#7fa476" }} />
               Desk open
             </span>
-            <span className="k" style={{ background: "#ebe5f6", color: "#56487d" }}>
+            <span className="k after tone-lavender">
               <i style={{ background: "#9886c6" }} />
               After hours
             </span>
@@ -262,7 +287,7 @@ export function Explorer({ calls, n, afterHours, priceAsked, funnel, notForwarde
                   <small className={c.after ? "after" : undefined}>{c.time}</small>
                 </div>
                 <div className="who">
-                  <b>{c.caller ?? "Name not given"}</b>
+                  <b>{nameOf(c) ?? "Name not given"}</b>
                   <small>{c.location ?? "Area not given"}</small>
                 </div>
                 <span className={`out-pill out-${c.outcome}`}>{OUTCOME_LABEL[c.outcome]}</span>
@@ -277,7 +302,54 @@ export function Explorer({ calls, n, afterHours, priceAsked, funnel, notForwarde
                   <span>Designer brief · {sel.shortId}</span>
                   <span>{sel.when}</span>
                 </div>
-                <div className="name">{sel.caller ?? "Name not given"}</div>
+                {editing?.id === sel.id ? (
+                  <form
+                    className="name-form"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      saveName();
+                    }}
+                  >
+                    <label className="sr-only" htmlFor="caller-name">Caller name</label>
+                    <input
+                      id="caller-name"
+                      autoFocus
+                      value={editing.value}
+                      maxLength={80}
+                      placeholder="Caller's name"
+                      onChange={(e) => setEditing({ ...editing, value: e.target.value, error: null })}
+                      onKeyDown={(e) => e.key === "Escape" && setEditing(null)}
+                    />
+                    <button type="submit" className="save" disabled={editing.saving}>
+                      {editing.saving ? "Saving…" : "Save"}
+                    </button>
+                    <button type="button" className="cancel" onClick={() => setEditing(null)}>
+                      Cancel
+                    </button>
+                    {editing.error && <span className="name-note" role="alert">{editing.error}</span>}
+                  </form>
+                ) : (
+                  <div className="name-row">
+                    <div className="name">{nameOf(sel) ?? "Name not given"}</div>
+                    <button
+                      type="button"
+                      className="edit-btn"
+                      aria-label="Edit caller name"
+                      title="Edit name"
+                      onClick={() => {
+                        setSavedNote(null);
+                        setEditing({ id: sel.id, value: nameOf(sel) ?? "", saving: false, error: null });
+                      }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                      </svg>
+                    </button>
+                    {(sel.nameEdited || names[sel.id]) && <span className="edited-tag">edited</span>}
+                  </div>
+                )}
+                {savedNote?.id === sel.id && editing?.id !== sel.id && <span className="name-note" role="status">{savedNote.text}</span>}
                 <div className="tags">
                   <span className="solid">{OUTCOME_LABEL[sel.outcome]}</span>
                   <span>{sel.location ?? "Area not given"}</span>

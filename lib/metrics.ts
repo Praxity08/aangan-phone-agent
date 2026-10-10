@@ -56,6 +56,7 @@ export interface CallRow {
   referral: string | null;
   budget_volunteered: string | null;
   consultation_type: string | null;
+  name_edited_at: string | null;
 }
 
 export async function sourceCounts() {
@@ -72,7 +73,8 @@ export async function loadDashboard(source: Source, period: Period) {
     SELECT call_id, started_at, phone, name, location, property, call_type, outcome, decline_reason, flags,
            summary, uncertain, booked, consultation_at, after_hours, duration_seconds, telegram_sent,
            hubspot_deal_id, asked_about_price, transcript, answer_seconds, voice_cost_inr, ai_cost_inr,
-           scope, carpet_area_sqft, complete_by, decision_maker, referral, budget_volunteered, consultation_type
+           scope, carpet_area_sqft, complete_by, decision_maker, referral, budget_volunteered, consultation_type,
+           name_edited_at
     FROM calls
     WHERE source = ${source} AND started_at >= ${fromIso}
     ORDER BY started_at DESC`) as (CallRow & { answer_seconds: number | null; voice_cost_inr: string; ai_cost_inr: string })[];

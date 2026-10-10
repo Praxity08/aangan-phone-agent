@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ThemeToggle } from "../components/ThemeToggle";
 
 export const metadata: Metadata = { title: "Sign in · Aangan Interiors" };
 
@@ -16,6 +17,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <div className="orb sage" aria-hidden />
       <div className="orb lav" aria-hidden />
       <div className="orb butter" aria-hidden />
+      <ThemeToggle />
 
       <main className="login-card">
         <div className="login-brand">
@@ -40,7 +42,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             />
           </label>
           {message && (
-            <span className="error" id="login-error" role="alert">
+            <span className="error tone-blush" id="login-error" role="alert">
               {message}
             </span>
           )}

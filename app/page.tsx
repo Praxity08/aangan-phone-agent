@@ -1,4 +1,5 @@
 import { Explorer, type CallView, type OutcomeKey } from "./components/Explorer";
+import { ThemeToggle } from "./components/ThemeToggle";
 import { config } from "@/lib/config";
 import { loadDashboard, PERIODS, SOURCES, sourceCounts, type CallRow, type Period, type Source } from "@/lib/metrics";
 
@@ -70,6 +71,7 @@ function toView(c: CallRow): CallView {
     hour: hourOf(c.started_at),
     after: c.after_hours,
     caller: c.name,
+    nameEdited: Boolean(c.name_edited_at),
     location: c.location,
     summary: c.summary,
     uncertain: c.uncertain,
@@ -85,7 +87,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
     return (
       <div className="shell">
         <main className="main">
-          <div className="card empty">
+          <div className="card empty tone-sky">
             <div className="orb" />
             <div className="t">Not connected yet</div>
             <p>DATABASE_URL is not set. Copy .env.example to .env.local and fill it in.</p>
@@ -126,6 +128,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
           <span className="dot" />
           <span className="txt">Answering, day or night</span>
         </div>
+
+        <ThemeToggle />
 
         <nav className="side-nav" aria-label="Sections">
           {INDEX.map(([label, anchor, dot]) => (
@@ -174,7 +178,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
 
       <main className="main">
         {d.n === 0 ? (
-          <div className="card empty">
+          <div className="card empty tone-sky">
             <div className="orb" />
             <div className="t">A quiet courtyard</div>
             <p>No calls in this period. {EMPTY_HINT[source]}</p>
@@ -185,21 +189,21 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
               <div className="card hero">
                 <div className="hero-top">
                   <span className="tag-pill">{periodLabel}</span>
-                  {isDemo && <span className="demo-pill">Demo data</span>}
+                  {isDemo && <span className="demo-pill tone-butter">Demo data</span>}
                 </div>
                 <h1 className="headline">
                   {d.n} calls answered. <span className="soft">{d.qualified} sent to a designer,</span>{" "}
                   <span className="win">{d.booked} consultations booked.</span>
                 </h1>
                 <div className="compare">
-                  <span style={{ color: "#8d9094" }}>Before the agent</span>
+                  <span className="before-lbl">Before the agent</span>
                   <div className="bar-row">
-                    <div className="bar" style={{ width: "52%", background: "#e8e5dc" }} />
-                    <span className="label" style={{ color: "#5b5f63" }}>52% replied within 48 hours</span>
+                    <div className="bar before-bar" />
+                    <span className="label before-txt">52% replied within 48 hours</span>
                   </div>
                   <span>With the agent</span>
                   <div className="bar-row">
-                    <div className="bar" style={{ flex: 1, background: "#a9c99f" }} />
+                    <div className="bar after-bar" />
                     <span className="label">{pct}% within 5 minutes</span>
                   </div>
                 </div>
@@ -253,7 +257,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
               notForwarded={d.notForwarded}
             />
 
-            <section id="cost" className="card cost">
+            <section id="cost" className="card cost tone-blush">
               <div>
                 <h2 className="h2">What it cost</h2>
                 <p>
