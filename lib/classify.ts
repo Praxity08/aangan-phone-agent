@@ -95,19 +95,40 @@ export async function classifyCall(transcript: string, startedAt: Date): Promise
   const request = JSON.stringify({
     systemInstruction: { parts: [{ text: buildSystemPrompt() }] },
     contents: [{ role: "user", parts: [{ text: `Call received ${when} (IST).\n\nTranscript:\n${transcript}` }] }],
-    generationConfig: { temperature: 0, responseMimeType: "application/json", responseSchema },
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: "application/json",
+      responseSchema,
+      // Sorting a call against a written rubric needs little reasoning; low thinking keeps it fast and cheap.
+      thinkingConfig: { thinkingLevel: "low" },
+    },
   });
 
-  // Gemini returns 429/500/503 under load ("high demand"); those pass in seconds, so retry with back-off.
+  // Gemini returns 429/500/503 under load ("high demand") or can stall; both usually pass, so retry with back-off.
+  // Worst case 4 × 45 s + 17 s of waiting stays inside the webhook's 5-minute budget.
   let res: Response | null = null;
+  let lastError = "";
   for (const wait of [0, 2000, 5000, 10000]) {
     if (wait) await new Promise((r) => setTimeout(r, wait));
-    res = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": key }, body: request });
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": key },
+        body: request,
+        signal: AbortSignal.timeout(45_000),
+      });
+    } catch (err) {
+      res = null;
+      lastError = `Gemini request failed: ${(err as Error).message}`;
+      continue;
+    }
     if (![429, 500, 503].includes(res.status)) break;
+    lastError = `Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`;
   }
 
-  if (!res!.ok) throw new Error(`Gemini ${res!.status}: ${await res!.text()}`);
-  const body = await res!.json();
+  if (!res) throw new Error(lastError);
+  if (!res.ok) throw new Error(lastError || `Gemini ${res.status}: ${await res.text()}`);
+  const body = await res.json();
   const text = body.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "";
   const record = JSON.parse(text) as CallRecord;
   record.flags ??= [];

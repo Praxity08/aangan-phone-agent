@@ -1,8 +1,10 @@
 import { webhookAuthorised } from "@/lib/auth";
-import { processCall } from "@/lib/process-call";
+import { after } from "next/server";
+import { classifyAndHandOff, storeCall } from "@/lib/process-call";
 import { normaliseVaaniPayload } from "@/lib/vaani";
 
-export const maxDuration = 60;
+// The response goes back at once; classification runs after it, with up to 5 minutes to finish.
+export const maxDuration = 300;
 
 /** Vaani Labs posts here when a call ends. */
 export async function POST(req: Request) {
@@ -29,6 +31,9 @@ export async function POST(req: Request) {
   }
 
   const source = new URL(req.url).searchParams.get("source") === "replay" ? "replay" : "live";
-  const result = await processCall(call, source);
-  return Response.json({ ok: true, call_id: call.call_id, ...result });
+  const { stored } = await storeCall(call, source);
+  if (!stored) return Response.json({ ok: true, call_id: call.call_id, duplicate: true });
+
+  after(() => classifyAndHandOff(call.call_id));
+  return Response.json({ ok: true, call_id: call.call_id, status: "classifying" }, { status: 202 });
 }

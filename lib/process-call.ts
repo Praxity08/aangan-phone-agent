@@ -5,99 +5,89 @@ import { createDeal } from "./integrations/hubspot";
 import { sendDesignerBrief, sendEscalation } from "./integrations/telegram";
 import type { CallRecord, IncomingCall } from "./types";
 
-const unclassified = (reason: string): CallRecord => ({
-  call_type: "other",
-  outcome: "unclassified",
-  decline_reason: null,
-  name: null,
-  referral: null,
-  property: null,
-  location: null,
-  carpet_area_sqft: null,
-  scope: null,
-  current_state: null,
-  complete_by: null,
-  decision_maker: null,
-  rented: null,
-  budget_volunteered: null,
-  asked_about_price: false,
-  flags: [],
-  uncertain: reason,
-  consultation: { type: null, booked_for: null },
-  summary: "Not classified yet. Read the transcript.",
-});
+type Source = "live" | "replay";
 
 /**
- * One finished call → classify → store → hand off.
- * Every step after storing is best-effort: a Telegram or HubSpot failure never loses the call.
+ * Step 1, inside the webhook request: store the call straight away (outcome "pending") so it is never lost
+ * and Vaani gets its answer in milliseconds, whatever Gemini is doing.
  */
-export async function processCall(call: IncomingCall, source: "live" | "replay" = "live") {
-  const db = sql();
-  const existing = await db`SELECT id FROM calls WHERE call_id = ${call.call_id}`;
-  if (existing.length) return { duplicate: true };
-
-  let record: CallRecord;
-  let aiCost = 0;
-  let aiTokens = 0;
-  try {
-    const c = await classifyCall(call.transcript, call.started_at);
-    record = c.record;
-    aiCost = c.costInr;
-    aiTokens = c.inputTokens + c.outputTokens;
-  } catch (err) {
-    record = unclassified(`Classifier failed: ${(err as Error).message.slice(0, 200)}`);
-  }
-
+export async function storeCall(call: IncomingCall, source: Source) {
   const voiceCost = call.voice_cost_inr ?? (call.duration_seconds / 60) * config.voiceInrPerMin;
-  const bookedFor = record.consultation.booked_for ? new Date(record.consultation.booked_for) : null;
-
-  await db`
+  const rows = await sql()`
     INSERT INTO calls (
       call_id, source, phone, started_at, answer_seconds, duration_seconds, after_hours,
-      call_type, outcome, decline_reason, name, referral, property, location, carpet_area_sqft,
-      scope, current_state, complete_by, decision_maker, rented, budget_volunteered,
-      asked_about_price, flags, uncertain, consultation_type, consultation_at, booked,
-      summary, transcript, voice_cost_inr, ai_cost_inr, ai_tokens
+      call_type, outcome, summary, transcript, voice_cost_inr
     ) VALUES (
       ${call.call_id}, ${source}, ${call.phone}, ${call.started_at.toISOString()}, ${call.answer_seconds},
       ${call.duration_seconds}, ${isAfterHours(call.started_at)},
-      ${record.call_type}, ${record.outcome}, ${record.decline_reason}, ${record.name}, ${record.referral},
-      ${record.property}, ${record.location}, ${record.carpet_area_sqft}, ${record.scope}, ${record.current_state},
-      ${record.complete_by}, ${record.decision_maker}, ${record.rented}, ${record.budget_volunteered},
-      ${record.asked_about_price}, ${record.flags}, ${record.uncertain}, ${record.consultation.type},
-      ${bookedFor && !isNaN(bookedFor.getTime()) ? bookedFor.toISOString() : null},
-      ${Boolean(record.consultation.booked_for)}, ${record.summary}, ${call.transcript},
-      ${voiceCost.toFixed(2)}, ${aiCost.toFixed(4)}, ${aiTokens}
-    )`;
+      'other', 'pending', 'Classifying…', ${call.transcript}, ${voiceCost.toFixed(2)}
+    )
+    ON CONFLICT (call_id) DO NOTHING
+    RETURNING id`;
+  return { stored: rows.length > 0 };
+}
 
-  const handoff: Record<string, unknown> = {};
+/**
+ * Step 2, after the response: classify the stored call, save the record, then hand off.
+ * Every step is best-effort: a Gemini, Telegram or HubSpot failure never loses the call.
+ */
+export async function classifyAndHandOff(callId: string) {
+  const db = sql();
+  const [row] = (await db`SELECT source, phone, started_at, transcript FROM calls WHERE call_id = ${callId}`) as {
+    source: Source;
+    phone: string | null;
+    started_at: string;
+    transcript: string;
+  }[];
+  if (!row) return;
+
+  let record: CallRecord;
+  try {
+    const c = await classifyCall(row.transcript, new Date(row.started_at));
+    record = c.record;
+    const bookedFor = record.consultation.booked_for ? new Date(record.consultation.booked_for) : null;
+    await db`
+      UPDATE calls SET
+        call_type = ${record.call_type}, outcome = ${record.outcome}, decline_reason = ${record.decline_reason},
+        name = ${record.name}, referral = ${record.referral}, property = ${record.property}, location = ${record.location},
+        carpet_area_sqft = ${record.carpet_area_sqft}, scope = ${record.scope}, current_state = ${record.current_state},
+        complete_by = ${record.complete_by}, decision_maker = ${record.decision_maker}, rented = ${record.rented},
+        budget_volunteered = ${record.budget_volunteered}, asked_about_price = ${record.asked_about_price},
+        flags = ${record.flags}, uncertain = ${record.uncertain}, consultation_type = ${record.consultation.type},
+        consultation_at = ${bookedFor && !isNaN(bookedFor.getTime()) ? bookedFor.toISOString() : null},
+        booked = ${Boolean(record.consultation.booked_for)}, summary = ${record.summary},
+        ai_cost_inr = ${c.costInr.toFixed(4)}, ai_tokens = ${c.inputTokens + c.outputTokens}
+      WHERE call_id = ${callId}`;
+  } catch (err) {
+    await db`
+      UPDATE calls SET outcome = 'unclassified', summary = 'Not classified yet. Read the transcript.',
+        uncertain = ${`Classifier failed: ${(err as Error).message.slice(0, 300)}`}
+      WHERE call_id = ${callId}`;
+    return;
+  }
+
   // Replays are tests: classify and log them, but never message designers or create deals.
-  if (source === "replay") return { outcome: record.outcome, handoff: { skipped: "replay" } };
+  if (row.source === "replay") return;
 
   if (record.outcome === "qualified") {
     try {
-      const sent = await sendDesignerBrief(record, call.phone);
-      handoff.telegram = sent;
-      if ("sent" in sent) await db`UPDATE calls SET telegram_sent = true WHERE call_id = ${call.call_id}`;
+      const sent = await sendDesignerBrief(record, row.phone);
+      if ("sent" in sent) await db`UPDATE calls SET telegram_sent = true WHERE call_id = ${callId}`;
     } catch (err) {
-      handoff.telegram = { error: (err as Error).message };
+      console.error("telegram brief failed", callId, (err as Error).message);
     }
     try {
-      const deal = await createDeal(record, call.phone);
-      handoff.hubspot = deal;
-      if ("dealId" in deal) await db`UPDATE calls SET hubspot_deal_id = ${deal.dealId} WHERE call_id = ${call.call_id}`;
+      const deal = await createDeal(record, row.phone);
+      if ("dealId" in deal) await db`UPDATE calls SET hubspot_deal_id = ${deal.dealId} WHERE call_id = ${callId}`;
     } catch (err) {
-      handoff.hubspot = { error: (err as Error).message };
+      console.error("hubspot deal failed", callId, (err as Error).message);
     }
   } else if (record.outcome === "escalated") {
     try {
-      const sent = await sendEscalation(record, call.phone);
-      handoff.telegram = sent;
-      if ("sent" in sent) await db`UPDATE calls SET telegram_sent = true WHERE call_id = ${call.call_id}`;
+      const sent = await sendEscalation(record, row.phone);
+      if ("sent" in sent) await db`UPDATE calls SET telegram_sent = true WHERE call_id = ${callId}`;
     } catch (err) {
-      handoff.telegram = { error: (err as Error).message };
+      console.error("telegram escalation failed", callId, (err as Error).message);
     }
   }
-
-  return { outcome: record.outcome, handoff };
 }

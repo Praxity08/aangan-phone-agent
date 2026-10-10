@@ -1,18 +1,20 @@
-// Test harness: sends each September transcript through the live webhook (Gemini classification included)
-// and compares the agent's outcome with the hand-classified one. Needs `npm run dev` running.
-// Usage: npm run replay            (all 20)
-//        npm run replay -- T02 T13 (some)
+// Test harness: sends each September transcript through the webhook (Gemini classification included),
+// waits for the background classification, and compares outcomes with the hand classification.
+// Replays never message designers or create deals.
+// Usage: npm run replay                (against http://localhost:3000)
+//        REPLAY_URL=https://… npm run replay -- T02 T13
 import { readFileSync } from "node:fs";
+import { neon } from "@neondatabase/serverless";
 
 const base = process.env.REPLAY_URL || "http://localhost:3000";
+const sql = neon(process.env.DATABASE_URL);
 const calls = JSON.parse(readFileSync(new URL("../data/september-phone-calls.json", import.meta.url)));
 const expected = JSON.parse(readFileSync(new URL("../data/september-records.json", import.meta.url)));
 const only = process.argv.slice(2);
 const run = Date.now().toString(36);
+const todo = calls.filter((c) => c.id !== "T08" && (!only.length || only.includes(c.id))); // T08: missed call, no transcript
 
-let match = 0, total = 0;
-for (const c of calls.filter((c) => !only.length || only.includes(c.id))) {
-  if (c.id === "T08") continue; // missed call, no transcript
+for (const c of todo) {
   const res = await fetch(`${base}/api/vaani/webhook?source=replay`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-webhook-secret": process.env.WEBHOOK_SECRET || "" },
@@ -25,10 +27,25 @@ for (const c of calls.filter((c) => !only.length || only.includes(c.id))) {
       transcript: c.transcript,
     }),
   });
-  const body = await res.json();
-  const want = expected[c.id].outcome;
-  const ok = body.outcome === want;
-  total++; if (ok) match++;
-  console.log(`${ok ? "✓" : "✗"} ${c.id}  expected ${want.padEnd(10)} got ${String(body.outcome ?? body.error).padEnd(12)}`);
+  if (res.status !== 202) console.log(`! ${c.id} webhook answered ${res.status}: ${(await res.text()).slice(0, 120)}`);
 }
-console.log(`\n${match}/${total} outcomes match the hand classification.`);
+console.log(`Sent ${todo.length} calls. Waiting for classification…`);
+
+const deadline = Date.now() + 6 * 60_000;
+let rows = [];
+while (Date.now() < deadline) {
+  rows = await sql`SELECT call_id, outcome, uncertain FROM calls WHERE call_id LIKE ${`replay-${run}-%`}`;
+  if (rows.length === todo.length && rows.every((r) => r.outcome !== "pending")) break;
+  await new Promise((r) => setTimeout(r, 5000));
+}
+
+let match = 0;
+for (const c of todo) {
+  const r = rows.find((x) => x.call_id === `replay-${run}-${c.id}`);
+  const got = r?.outcome ?? "missing";
+  const want = expected[c.id].outcome;
+  if (got === want) match++;
+  const why = got === "unclassified" ? `  (${(r.uncertain ?? "").slice(0, 90)})` : "";
+  console.log(`${got === want ? "✓" : "✗"} ${c.id}  expected ${want.padEnd(10)} got ${got}${why}`);
+}
+console.log(`\n${match}/${todo.length} outcomes match the hand classification.`);
