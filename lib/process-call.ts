@@ -40,6 +40,11 @@ export async function classifyAndHandOff(callId: string) {
     transcript: string;
   }[];
   if (!row) return;
+  if (!row.transcript?.trim()) {
+    await db`UPDATE calls SET outcome = 'unclassified', summary = 'No transcript arrived with this call.',
+      uncertain = 'Vaani sent the call without a transcript. Check that the webhook includes it.' WHERE call_id = ${callId}`;
+    return;
+  }
 
   let record: CallRecord;
   try {
